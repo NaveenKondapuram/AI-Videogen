@@ -1,21 +1,36 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_URL = import.meta.env.VITE_API_URL || ''
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
-  })
+  let response
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      ...options,
+    })
+  } catch {
+    throw new Error('Cannot connect to the backend. Start FastAPI on http://127.0.0.1:8000 and try again.')
+  }
+
   const payload = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(payload.detail || 'Request failed')
+  if (!response.ok) throw new Error(payload.detail || `Request failed (${response.status})`)
   return payload
+}
+
+export async function checkHealth() {
+  return request('/health')
 }
 
 export async function uploadImage(file) {
   const formData = new FormData()
   formData.append('file', file)
-  const response = await fetch(`${API_URL}/api/upload`, { method: 'POST', body: formData })
+  let response
+  try {
+    response = await fetch(`${API_URL}/api/upload`, { method: 'POST', body: formData })
+  } catch {
+    throw new Error('Cannot connect to the backend. Start FastAPI on http://127.0.0.1:8000 and try again.')
+  }
   const payload = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(payload.detail || 'Upload failed')
+  if (!response.ok) throw new Error(payload.detail || `Upload failed (${response.status})`)
   return payload
 }
 
