@@ -1,0 +1,380 @@
+import { useEffect, useRef, useState } from 'react'
+import { Image as ImageIcon, Video, Download, RotateCcw, Sparkles, Trash2, Upload, PlusCircle, Wand2, PlayCircle } from 'lucide-react'
+import { deleteHistoryItem, generateImage, generateVideo, getHistory, getVideoStatus, uploadImage } from './services/api'
+
+const defaultForm = {
+  prompt: 'Create a cinematic scene of a futuristic city at night with flying cars.',
+  generationType: 'image',
+  aspectRatio: '16:9',
+  numImages: 1,
+  duration: 5,
+  resolution: '720p',
+}
+
+function App() {
+  const [form, setForm] = useState(defaultForm)
+  const [referenceImage, setReferenceImage] = useState(null)
+  const [imagePreview, setImagePreview] = useState('')
+  const [isUploading, setIsUploading] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState(null)
+  const [history, setHistory] = useState([])
+  const [videoJobId, setVideoJobId] = useState('')
+  const fileInputRef = useRef(null)
+
+  const loadHistory = async () => {
+    try {
+      const items = await getHistory()
+      setHistory(items)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  useEffect(() => {
+    loadHistory()
+  }, [])
+
+  useEffect(() => {
+    if (!videoJobId) return
+
+    const interval = setInterval(async () => {
+      try {
+        const status = await getVideoStatus(videoJobId)
+        setResult((prev) => ({ ...prev, status: status.status, progress: status.progress, video_url: status.video_url || prev?.video_url, message: status.message || prev?.message }))
+
+        if (status.status === 'completed' || status.status === 'failed') {
+          clearInterval(interval)
+          setIsGenerating(false)
+          loadHistory()
+        }
+      } catch (err) {
+        console.error(err)
+        setError(err.message || 'Failed to fetch video status')
+        clearInterval(interval)
+        setIsGenerating(false)
+      }
+    }, 2000)
+
+    return () => clearInterval(interval)
+  }, [videoJobId])
+
+  const onDrop = async (event) => {
+    event.preventDefault()
+    const file = event.dataTransfer.files?.[0]
+    if (file) handleImageSelection(file)
+  }
+
+  const handleImageSelection = async (file) => {
+    if (!file) return
+
+    setIsUploading(true)
+    setError('')
+
+    try {
+      const uploadResult = await uploadImage(file)
+      const previewUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${uploadResult.url}`
+      setReferenceImage(uploadResult.url)
+      setImagePreview(previewUrl)
+    } catch (err) {
+      setError(err.message || 'Upload failed')
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const clearImage = () => {
+    setReferenceImage(null)
+    setImagePreview('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleGenerate = async () => {
+    setError('')
+    if (!form.prompt.trim()) {
+      setError('Please enter a prompt before generating.')
+      return
+    }
+
+    setIsGenerating(true)
+    setResult(null)
+
+    try {
+      if (form.generationType === 'image') {
+        const payload = {
+          prompt: form.prompt,
+          reference_image: referenceImage || null,
+          aspect_ratio: form.aspectRatio,
+          num_images: Number(form.numImages),
+        }
+        const response = await generateImage(payload)
+        setResult({
+          type: 'image',
+          image_url: response.image_url,
+          provider: response.provider,
+          message: response.message,
+          status: response.status,
+        })
+      } else {
+        const payload = {
+          prompt: form.prompt,
+          image: referenceImage || null,
+          duration: Number(form.duration),
+          aspect_ratio: form.aspectRatio,
+          resolution: form.resolution,
+        }
+        const response = await generateVideo(payload)
+        setVideoJobId(response.job_id)
+        setResult({
+          type: 'video',
+          status: response.status,
+          provider: response.provider,
+          message: 'Video generation is still processing. Please wait...',
+          progress: 0,
+        })
+      }
+      await loadHistory()
+    } catch (err) {
+      setError(err.message || 'Generation failed')
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const downloadAsset = () => {
+    if (!result) return
+    const url = result.image_url || result.video_url
+    if (!url) return
+    const link = document.createElement('a')
+    link.href = url
+    link.target = '_blank'
+    link.rel = 'noreferrer'
+    link.download = result.type === 'image' ? 'generated-image.png' : 'generated-video.mp4'
+    link.click()
+  }
+
+  const useAsReference = () => {
+    if (!result) return
+    const source = result.image_url || result.video_url
+    if (!source) return
+    setReferenceImage(source)
+    setImagePreview(source)
+  }
+
+  const createVideoFromResult = () => {
+    if (!result || !result.image_url) return
+    setForm((prev) => ({ ...prev, generationType: 'video', prompt: prev.prompt || 'Create a cinematic motion shot from the selected reference.' }))
+    setReferenceImage(result.image_url)
+    setImagePreview(result.image_url)
+  }
+
+  const deleteItem = async (id) => {
+    try {
+      await deleteHistoryItem(id)
+      await loadHistory()
+    } catch (err) {
+      setError(err.message || 'Failed to delete generation')
+    }
+  }
+
+  return (
+    <div className="page-shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">AI CREATIVE STUDIO</p>
+          <h1>Generate visuals with text, image references, and motion.</h1>
+        </div>
+      </header>
+
+      <main className="studio-grid">
+        <section className="panel creator-panel">
+          <div className="field-group">
+            <label>Prompt</label>
+            <textarea
+              rows={5}
+              value={form.prompt}
+              onChange={(e) => setForm({ ...form, prompt: e.target.value })}
+              placeholder="Describe what you want to create..."
+            />
+          </div>
+
+          <div className="field-group">
+            <label>Reference Image</label>
+            <div
+              className="drop-zone"
+              onDrop={onDrop}
+              onDragOver={(e) => e.preventDefault()}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {imagePreview ? (
+                <div className="image-preview-wrap">
+                  <img src={imagePreview} alt="Upload preview" className="image-preview" />
+                  <button className="chip danger" onClick={(e) => { e.stopPropagation(); clearImage() }}>
+                    Remove image
+                  </button>
+                </div>
+              ) : (
+                <div className="drop-text">
+                  <Upload size={20} />
+                  <span>Drag & drop image here</span>
+                  <small>or</small>
+                  <button className="chip" type="button">Upload Image</button>
+                </div>
+              )}
+              <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => handleImageSelection(e.target.files?.[0])} />
+            </div>
+            {isUploading && <p className="small-status">Uploading image...</p>}
+          </div>
+
+          <div className="field-group inline-group">
+            <label>Generation Type</label>
+            <div className="segmented-control">
+              <button className={form.generationType === 'image' ? 'active' : ''} onClick={() => setForm({ ...form, generationType: 'image' })} type="button">
+                <ImageIcon size={16} /> Image
+              </button>
+              <button className={form.generationType === 'video' ? 'active' : ''} onClick={() => setForm({ ...form, generationType: 'video' })} type="button">
+                <Video size={16} /> Video
+              </button>
+            </div>
+          </div>
+
+          {form.generationType === 'image' ? (
+            <div className="settings-grid">
+              <div className="field-group">
+                <label>Aspect Ratio</label>
+                <select value={form.aspectRatio} onChange={(e) => setForm({ ...form, aspectRatio: e.target.value })}>
+                  <option value="1:1">1:1</option>
+                  <option value="16:9">16:9</option>
+                  <option value="9:16">9:16</option>
+                  <option value="4:5">4:5</option>
+                </select>
+              </div>
+              <div className="field-group">
+                <label>Number of Images</label>
+                <input type="number" min="1" max="4" value={form.numImages} onChange={(e) => setForm({ ...form, numImages: Number(e.target.value) || 1 })} />
+              </div>
+            </div>
+          ) : (
+            <div className="settings-grid">
+              <div className="field-group">
+                <label>Duration (seconds)</label>
+                <input type="number" min="1" max="30" value={form.duration} onChange={(e) => setForm({ ...form, duration: Number(e.target.value) || 5 })} />
+              </div>
+              <div className="field-group">
+                <label>Aspect Ratio</label>
+                <select value={form.aspectRatio} onChange={(e) => setForm({ ...form, aspectRatio: e.target.value })}>
+                  <option value="16:9">16:9</option>
+                  <option value="9:16">9:16</option>
+                  <option value="1:1">1:1</option>
+                </select>
+              </div>
+              <div className="field-group">
+                <label>Resolution</label>
+                <select value={form.resolution} onChange={(e) => setForm({ ...form, resolution: e.target.value })}>
+                  <option value="720p">720p</option>
+                  <option value="1080p">1080p</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {error && <div className="error-box">{error}</div>}
+
+          <button className="primary-button" onClick={handleGenerate} disabled={isGenerating || isUploading}>
+            {isGenerating ? <><Sparkles size={16} /> Generating...</> : <><Wand2 size={16} /> Generate</>}
+          </button>
+        </section>
+
+        <section className="panel result-panel">
+          <div className="result-header">
+            <h2>Generated Result</h2>
+            {result && (
+              <div className="result-actions">
+                {result.image_url || result.video_url ? (
+                  <button className="secondary-button" onClick={downloadAsset}>
+                    <Download size={16} /> Download
+                  </button>
+                ) : null}
+                <button className="secondary-button" onClick={() => { setResult(null); setVideoJobId(''); }}>
+                  <RotateCcw size={16} /> Regenerate
+                </button>
+                {result.image_url && (
+                  <button className="secondary-button" onClick={useAsReference}>
+                    <PlusCircle size={16} /> Use as Reference
+                  </button>
+                )}
+                {result.image_url && (
+                  <button className="secondary-button" onClick={createVideoFromResult}>
+                    <PlayCircle size={16} /> Create Video
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {!result ? (
+            <div className="empty-result">
+              <ImageIcon size={42} />
+              <p>Your generated image or video will appear here.</p>
+            </div>
+          ) : result.image_url ? (
+            <div className="media-stage">
+              <img src={result.image_url} alt="Generated result" className="final-media" />
+              {result.message && <p className="status-note">{result.message}</p>}
+            </div>
+          ) : result.video_url ? (
+            <div className="media-stage">
+              <video controls src={result.video_url} className="final-media" />
+              {result.message && <p className="status-note">{result.message}</p>}
+            </div>
+          ) : (
+            <div className="media-stage processing-box">
+              <div className="spinner" />
+              <p>{result.message || 'Processing...'}</p>
+              {typeof result.progress === 'number' && <div className="progress-bar"><span style={{ width: `${result.progress}%` }} /></div>}
+            </div>
+          )}
+        </section>
+      </main>
+
+      <section className="panel history-panel">
+        <div className="history-header">
+          <h2>Generation History</h2>
+        </div>
+        <div className="history-list">
+          {history.length === 0 ? <p className="empty-history">No generations yet.</p> : history.map((entry) => (
+            <div key={entry.id} className="history-item">
+              <div className="history-thumb-wrap">
+                {entry.result_url ? (
+                  <img src={entry.result_url} alt={entry.prompt} className="history-thumb" />
+                ) : (
+                  <div className="history-thumb placeholder"><Video size={20} /></div>
+                )}
+              </div>
+              <div className="history-body">
+                <div className="history-meta-row">
+                  <span className="pill">{entry.generation_type}</span>
+                  <span className="pill muted">{entry.provider}</span>
+                  <span className="pill muted">{entry.status}</span>
+                </div>
+                <p className="history-prompt">{entry.prompt}</p>
+                <small>{new Date(entry.created_at).toLocaleString()}</small>
+              </div>
+              <div className="history-actions">
+                <button className="icon-button" onClick={() => { if (entry.input_image) { setReferenceImage(entry.input_image); setImagePreview(entry.input_image); } setForm((prev) => ({ ...prev, prompt: entry.prompt, generationType: entry.generation_type })); }}>
+                  <Sparkles size={16} />
+                </button>
+                <button className="icon-button danger" onClick={() => deleteItem(entry.id)}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+export default App
