@@ -1,14 +1,32 @@
 # AI Creative Studio
 
-## Windows quick start
+## Simplest Windows startup
 
 1. Download and extract the repository.
-2. Open PowerShell in the extracted repository root.
-3. Run `./run-backend.ps1` and leave it open.
-4. Open a second PowerShell in the same root.
-5. Run `./run-frontend.ps1` and leave it open.
-6. Open http://localhost:5173.
+2. Open PowerShell in the extracted project folder.
+3. Run:
 
-The backend uses the mock provider by default, so no AI key is required. The backend health URL is http://localhost:8000/health.
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\start.ps1
+```
 
-If PowerShell blocks scripts, run `Set-ExecutionPolicy -Scope Process Bypass` once in that terminal, then run the script again.
+That single command automatically:
+
+- creates the Python virtual environment if needed
+- installs backend dependencies
+- installs frontend dependencies
+- starts the backend
+- starts the frontend
+- opens the app in your browser
+
+Application: http://localhost:5173
+Backend health: http://localhost:8000/health
+
+The mock provider is enabled by default, so no AI API key is required for local testing.
+
+To stop the app, close the two terminal windows opened by `start.ps1`.
+
+## Manual startup
+
+If you prefer separate terminals, use `run-backend.ps1` and `run-frontend.ps1`.
