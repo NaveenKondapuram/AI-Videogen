@@ -1,21 +1,46 @@
-import os
-from typing import Tuple
+from __future__ import annotations
 
-from app.providers.base import AIImageProvider, AIVideoProvider
-from app.providers.mock_provider import MockImageProvider, MockVideoProvider
+import time
+import uuid
+from typing import Any
+
+from app.database.db import save_generation
+from app.providers.factory import get_providers
+
+VIDEO_JOBS: dict[str, dict[str, Any]] = {}
 
 
-def get_providers() -> Tuple[AIImageProvider, AIVideoProvider]:
-    provider_name = os.getenv("AI_PROVIDER", "mock").lower()
-    use_mock = os.getenv("USE_MOCK_PROVIDER", "true").lower() == "true"
+class GenerationService:
+    def __init__(self):
+        self.image_provider, self.video_provider = get_providers()
 
-    if use_mock or provider_name == "mock":
-        return MockImageProvider(), MockVideoProvider()
+    def generate_image(self, prompt: str, reference_image: str | None, aspect_ratio: str, num_images: int) -> dict[str, Any]:
+        result = self.image_provider.generate_image(prompt, reference_image, aspect_ratio, num_images)
+        save_generation({"prompt": prompt, "input_image": reference_image, "result_url": result.get("image_url"), "generation_type": "image", "status": "completed", "provider": self.image_provider.name, "metadata": {"aspect_ratio": aspect_ratio, "num_images": num_images, "note": result.get("note")}})
+        return {"status": "completed", "image_url": result.get("image_url"), "provider": self.image_provider.name, "message": result.get("note", "Image generation completed.")}
 
-    if provider_name == "openai":
-        raise RuntimeError("OpenAI provider is not configured in this starter project. Set USE_MOCK_PROVIDER=true or add a provider implementation.")
+    def create_video_job(self, prompt: str, image: str | None, duration: int, aspect_ratio: str, resolution: str) -> dict[str, Any]:
+        job_id = str(uuid.uuid4())
+        VIDEO_JOBS[job_id] = {"job_id": job_id, "prompt": prompt, "image": image, "duration": duration, "aspect_ratio": aspect_ratio, "resolution": resolution, "status": "processing", "progress": 0, "created_at": time.time(), "provider": self.video_provider.name, "video_url": None}
+        save_generation({"prompt": prompt, "input_image": image, "result_url": None, "generation_type": "video", "status": "processing", "provider": self.video_provider.name, "metadata": {"duration": duration, "aspect_ratio": aspect_ratio, "resolution": resolution}})
+        return {"job_id": job_id, "status": "processing", "provider": self.video_provider.name}
 
-    if provider_name == "replicate":
-        raise RuntimeError("Replicate provider is not configured in this starter project. Set USE_MOCK_PROVIDER=true or add a provider implementation.")
+    def get_video_status(self, job_id: str) -> dict[str, Any]:
+        if job_id not in VIDEO_JOBS:
+            raise KeyError(job_id)
+        job = VIDEO_JOBS[job_id]
+        elapsed = time.time() - job["created_at"]
+        if job["status"] == "processing":
+            job["progress"] = min(100, int((elapsed / 4) * 100))
+            if elapsed >= 4:
+                job["status"] = "completed"
+                job["progress"] = 100
+                job["video_url"] = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
+                job["note"] = "Mock provider is enabled. This is a placeholder URL for local development only."
+        result = {"job_id": job_id, "status": job["status"], "progress": job["progress"], "provider": job["provider"]}
+        if job.get("video_url"): result["video_url"] = job["video_url"]
+        if job.get("note"): result["message"] = job["note"]
+        return result
 
-    raise RuntimeError(f"Unsupported AI provider '{provider_name}'. Configure a provider or enable the mock provider.")
+
+service = GenerationService()

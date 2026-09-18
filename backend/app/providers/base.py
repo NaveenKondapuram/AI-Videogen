@@ -1,78 +1,20 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sqlite3
-from typing import Any
-
-DB_PATH = Path(__file__).resolve().parents[1] / "data" / "studio.db"
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+from abc import ABC, abstractmethod
+from typing import Any, Optional
 
 
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+class AIImageProvider(ABC):
+    name: str = "base"
+
+    @abstractmethod
+    def generate_image(self, prompt: str, reference_image: Optional[str] = None, aspect_ratio: str = "16:9", num_images: int = 1, **kwargs: Any) -> dict[str, Any]:
+        raise NotImplementedError
 
 
-def init_db() -> None:
-    conn = get_connection()
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS generations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            prompt TEXT NOT NULL,
-            input_image TEXT,
-            result_url TEXT,
-            generation_type TEXT NOT NULL,
-            status TEXT NOT NULL,
-            provider TEXT NOT NULL,
-            metadata TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    conn.commit()
-    conn.close()
+class AIVideoProvider(ABC):
+    name: str = "base"
 
-
-def save_generation(record: dict[str, Any]) -> int:
-    conn = get_connection()
-    cursor = conn.execute(
-        """
-        INSERT INTO generations (prompt, input_image, result_url, generation_type, status, provider, metadata, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        """,
-        (
-            record["prompt"],
-            record.get("input_image"),
-            record.get("result_url"),
-            record["generation_type"],
-            record["status"],
-            record["provider"],
-            record.get("metadata"),
-        ),
-    )
-    conn.commit()
-    generation_id = cursor.lastrowid
-    conn.close()
-    return generation_id
-
-
-def list_generations() -> list[dict[str, Any]]:
-    conn = get_connection()
-    rows = conn.execute(
-        """
-        SELECT id, prompt, input_image, result_url, generation_type, status, provider, created_at
-        FROM generations ORDER BY id DESC
-        """
-    ).fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
-
-
-def delete_generation(generation_id: int) -> bool:
-    conn = get_connection()
-    cursor = conn.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
-    conn.commit()
-    conn.close()
-    return cursor.rowcount > 0
+    @abstractmethod
+    def generate_video(self, prompt: str, image: Optional[str] = None, duration: int = 5, aspect_ratio: str = "16:9", resolution: str = "720p", **kwargs: Any) -> dict[str, Any]:
+        raise NotImplementedError
