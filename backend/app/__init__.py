@@ -1,1 +1,1 @@
-node_modules
+"""AI Creative Studio backend application package."""
