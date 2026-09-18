@@ -1,64 +1,40 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import { useEffect, useState } from 'react'
+import { generateImage, getHistory } from './services/api'
 
-async function request(path, options = {}) {
-  const response = await fetch(`${API_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  })
+export default function App() {
+  const [prompt, setPrompt] = useState('Create a cinematic scene of a futuristic city at night with flying cars.')
+  const [result, setResult] = useState(null)
+  const [history, setHistory] = useState([])
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const payload = await response.json().catch(() => ({}))
+  useEffect(() => { getHistory().then(setHistory).catch(() => {}) }, [])
 
-  if (!response.ok) {
-    throw new Error(payload.detail || 'Request failed')
+  async function handleGenerate() {
+    setLoading(true)
+    setError('')
+    try {
+      const response = await generateImage({ prompt, reference_image: null, aspect_ratio: '16:9', num_images: 1 })
+      setResult(response)
+      setHistory(await getHistory())
+    } catch (err) {
+      setError(err.message || 'Generation failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  return payload
-}
-
-export async function uploadImage(file) {
-  const formData = new FormData()
-  formData.append('file', file)
-
-  const response = await fetch(`${API_URL}/api/upload`, {
-    method: 'POST',
-    body: formData,
-  })
-
-  const payload = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    throw new Error(payload.detail || 'Upload failed')
-  }
-
-  return payload
-}
-
-export async function generateImage(data) {
-  return request('/api/generate/image', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
-}
-
-export async function generateVideo(data) {
-  return request('/api/generate/video', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
-}
-
-export async function getVideoStatus(jobId) {
-  return request(`/api/video/status/${jobId}`)
-}
-
-export async function getHistory() {
-  const data = await request('/api/history')
-  return data.items || []
-}
-
-export async function deleteHistoryItem(id) {
-  return request(`/api/history/${id}`, { method: 'DELETE' })
+  return (
+    <main className="page-shell">
+      <header><p className="eyebrow">AI CREATIVE STUDIO</p><h1>Generate visuals with text, image references, and motion.</h1></header>
+      <section className="panel">
+        <label htmlFor="prompt">Prompt</label>
+        <textarea id="prompt" rows="5" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+        {error && <p className="error-box">{error}</p>}
+        <button onClick={handleGenerate} disabled={loading}>{loading ? 'Generating...' : 'Generate Image'}</button>
+      </section>
+      <section className="panel"><h2>Generated Result</h2>{result?.image_url ? <img className="result-image" src={result.image_url} alt="Generated result" /> : <p>Your generated image or video will appear here.</p>}</section>
+      <section className="panel"><h2>Generation History</h2>{history.length ? history.map((item) => <p key={item.id}>{item.prompt}</p>) : <p>No generations yet.</p>}</section>
+    </main>
+  )
 }
